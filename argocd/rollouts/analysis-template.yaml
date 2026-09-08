@@ -1,0 +1,33 @@
+# ==============================================================================
+# Prometheus Metric Analysis Template for Automated Canary Validation
+# Automatically aborts and rolls back if HTTP error rate exceeds 1% or P99 latency > 300ms
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: success-rate-analysis
+  namespace: payments-prod
+spec:
+  args:
+    - name: service-name
+  metrics:
+    - name: success-rate
+      interval: 30s
+      successCondition: result[0] >= 0.99
+      failureLimit: 2
+      provider:
+        prometheus:
+          address: http://prometheus-server.monitoring.svc.cluster.local:9090
+          query: |
+            sum(rate(http_requests_total{endpoint!="/healthz",status!~"5..",job="{{args.service-name}}"}[1m]))
+            /
+            sum(rate(http_requests_total{endpoint!="/healthz",job="{{args.service-name}}"}[1m]))
+    - name: p99-latency
+      interval: 30s
+      successCondition: result[0] <= 0.300
+      failureLimit: 2
+      provider:
+        prometheus:
+          address: http://prometheus-server.monitoring.svc.cluster.local:9090
+          query: |
+            histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job="{{args.service-name}}"}[1m])) by (le))

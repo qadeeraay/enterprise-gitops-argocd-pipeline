@@ -1,0 +1,26 @@
+# Staging Environment Overrides
+replicaCount: 2
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+
+ingress:
+  hosts:
+    - host: payments.staging.internal.net
+      paths:
+        - path: /
+          pathType: Prefix
+
+env:
+  APP_ENV: "staging"
+  APP_VERSION: "1.2.0-rc.1"

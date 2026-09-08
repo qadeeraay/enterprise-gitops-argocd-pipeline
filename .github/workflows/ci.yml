@@ -1,0 +1,109 @@
+name: Production GitOps CI/CD Delivery Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write
+  packages: write
+  security-events: write
+
+jobs:
+  lint-and-test:
+    name: Microservice Quality & Unit Testing
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r app/requirements.txt pytest httpx flake8
+
+      - name: Lint Code
+        run: |
+          flake8 app/ --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 app/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+      - name: Run Unit Tests
+        run: |
+          pytest tests/test_app.py -v
+
+  helm-lint-and-dryrun:
+    name: Helm Chart Validation & Template Dry-Run
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Lint Helm Chart
+        run: |
+          helm lint charts/payment-gateway
+
+      - name: Template Dry-Run Across Environments
+        run: |
+          bash tests/validate_helm.sh
+
+  security-scan:
+    name: Container Build & Trivy Vulnerability Scan
+    runs-on: ubuntu-latest
+    needs: [lint-and-test, helm-lint-and-dryrun]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Local Container Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./app
+          file: ./app/Dockerfile
+          load: true
+          tags: ghcr.io/qadeeraay/payment-gateway:${{ github.sha }}
+
+      - name: Run Trivy Vulnerability Scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/qadeeraay/payment-gateway:${{ github.sha }}
+          format: "table"
+          exit-code: "0" # Audit mode (set to 1 for breaking build)
+          ignore-unfixed: true
+          vuln-type: "os,library"
+          severity: "CRITICAL,HIGH"
+
+  gitops-sync:
+    name: GitOps Manifest Automated Update
+    runs-on: ubuntu-latest
+    needs: [security-scan]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Staging Image Tag in Helm Values
+        run: |
+          sed -i "s/tag:.*/tag: \"${{ github.sha }}\"/" charts/payment-gateway/values-staging.yaml
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add charts/payment-gateway/values-staging.yaml
+          git diff --quiet && git diff --staged --quiet || git commit -m "ci(gitops): promote image tag to ${{ github.sha }} [skip ci]"
+          git push origin main

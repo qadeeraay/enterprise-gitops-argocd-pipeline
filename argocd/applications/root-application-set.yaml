@@ -1,0 +1,61 @@
+# ==============================================================================
+# ArgoCD Declarative App-of-Apps Pattern
+# Synchronizes Multi-Environment Workloads from a Single Source of Truth
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: payment-gateway-root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/qadeeraay/enterprise-gitops-argocd-pipeline.git
+    targetRevision: HEAD
+    path: argocd/applications
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: payment-gateway-prod
+  namespace: argocd
+  labels:
+    tier: payment-gateway
+    env: production
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/qadeeraay/enterprise-gitops-argocd-pipeline.git
+    targetRevision: main
+    path: charts/payment-gateway
+    helm:
+      valueFiles:
+        - values-prod.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: payments-prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

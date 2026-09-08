@@ -1,0 +1,16 @@
+apiVersion: v2
+name: payment-gateway
+description: Production Enterprise Payment Gateway Microservice with GitOps, PDB, HPA & Zero-Trust Security
+type: application
+version: 1.2.0
+appVersion: "1.2.0"
+maintainers:
+  - name: Qadeer Aslam
+    email: qadeeraslam888@gmail.com
+    url: https://github.com/qadeeraay
+keywords:
+  - devops
+  - gitops
+  - argocd
+  - kubernetes
+  - microservice

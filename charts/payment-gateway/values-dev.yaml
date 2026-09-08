@@ -1,0 +1,24 @@
+# Development Environment Overrides
+replicaCount: 1
+
+resources:
+  limits:
+    cpu: 250m
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+autoscaling:
+  enabled: false
+
+ingress:
+  hosts:
+    - host: payments.dev.internal.net
+      paths:
+        - path: /
+          pathType: Prefix
+
+env:
+  APP_ENV: "development"
+  APP_VERSION: "1.2.0-dev"

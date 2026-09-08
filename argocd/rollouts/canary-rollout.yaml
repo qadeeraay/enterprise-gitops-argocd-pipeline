@@ -1,0 +1,65 @@
+# ==============================================================================
+# Argo Rollouts Progressive Delivery: Automated Metric-Driven Canary
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: payment-gateway-rollout
+  namespace: payments-prod
+  labels:
+    app.kubernetes.io/name: payment-gateway
+spec:
+  replicas: 5
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: payment-gateway
+  strategy:
+    canary:
+      canaryService: payment-gateway-canary
+      stableService: payment-gateway-stable
+      trafficRouting:
+        nginx:
+          stableIngress: payment-gateway-ingress
+      steps:
+        # Step 1: Route 20% of live traffic to the new Canary release
+        - setWeight: 20
+        - pause: { duration: 2m }
+        # Step 2: Run automated Prometheus telemetry analysis
+        - analysis:
+            templates:
+              - templateName: success-rate-analysis
+            args:
+              - name: service-name
+                value: payment-gateway-canary
+        # Step 3: Promote to 50% traffic if analysis succeeds
+        - setWeight: 50
+        - pause: { duration: 3m }
+        # Step 4: Run final verification before 100% stable cutover
+        - analysis:
+            templates:
+              - templateName: success-rate-analysis
+            args:
+              - name: service-name
+                value: payment-gateway-canary
+        # Step 5: Full 100% promotion
+        - setWeight: 100
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: payment-gateway
+    spec:
+      containers:
+        - name: payment-gateway
+          image: ghcr.io/qadeeraay/payment-gateway:1.2.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
