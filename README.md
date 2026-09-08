@@ -1,4 +1,4 @@
-# Enterprise GitOps & Progressive Delivery Platform
+# Payment Gateway: Enterprise GitOps & Progressive Delivery
 
 [![GitOps CI/CD](https://github.com/qadeeraay/enterprise-gitops-argocd-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/qadeeraay/enterprise-gitops-argocd-pipeline/actions/workflows/ci.yml)
 [![ArgoCD](https://img.shields.io/badge/GitOps-ArgoCD%20v2.10+-orange?style=flat-square&logo=argo&logoColor=white)](argocd)
@@ -8,11 +8,11 @@
 [![Trivy](https://img.shields.io/badge/Vulnerability%20Scan-Trivy%20Passing-brightgreen?style=flat-square&logo=aquasecurity)](https://github.com/aquasecurity/trivy)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
-> **Zero-trust enterprise GitOps platform combining GitHub Actions, Helm 3, ArgoCD, and Argo Rollouts. Implements declarative Multi-Environment App-of-Apps orchestration, Kyverno admission control, and automated metric-driven Canary progressive delivery with automatic rollback.**
+A pull-based GitOps deployment platform and microservice architecture built with **GitHub Actions, Helm 3, ArgoCD, and Argo Rollouts**. Features multi-environment App-of-Apps management, Kyverno zero-trust admission webhooks, and real-time metric-driven Canary deployments with automated sub-2-second rollback.
 
 ---
 
-## Architectural Overview
+## Continuous Delivery Pipeline Topology
 
 ```mermaid
 flowchart TD
@@ -49,60 +49,81 @@ flowchart TD
 
 ---
 
-## Why I Built This: The Flaws of Legacy Push-Based CI/CD
+## The Architecture Problem: Why Push-Based CI/CD is an Attack Vector
 
-In traditional "Push-based" CI/CD pipelines (e.g., standard Jenkins or basic GitHub Actions), CI servers require **cluster-admin `kubeconfig` credentials** embedded into the runner. If a CI server is compromised, attackers gain full root access to your live Kubernetes clusters.
+In traditional push-based CI/CD workflows (standard Jenkins, CircleCI, or GitHub Actions deploying via `kubectl apply`), the CI runner must store high-privilege `cluster-admin` credentials. If an attacker breaches the CI runner through an insecure dependency, they inherit root administrative access across the entire production cluster.
 
-Furthermore, push-based pipelines suffer from **Cluster Drift**: if an engineer runs `kubectl edit` or changes a replica count manually during an incident, the cluster state immediately diverges from Git with zero audit trail.
+Furthermore, push-based pipelines do not prevent **configuration drift**: if someone manually runs `kubectl edit deployment` during an outage, the cluster state diverges from Git with zero version history or automated rollback trail.
 
-### How this GitOps Architecture Solves It:
-1. **Pull-Based Zero-Access Control Plane:** The cluster's internal ArgoCD controller pulls declarative manifests from Git. **No external CI runner has cluster access credentials.**
-2. **Deterministic Drift Reconciliation:** ArgoCD enforces `selfHeal: true` and `prune: true`. Any manual out-of-band changes applied via `kubectl` are instantly overwritten and restored to the Git state within seconds.
-3. **Automated Progressive Delivery (Canary vs. All-or-Nothing):** Traditional Kubernetes `RollingUpdate` deploys new pods regardless of runtime application errors. Using **Argo Rollouts**, this platform routes 20% of traffic to canary pods, analyzes real Prometheus metrics, and **automatically rolls back in under 2 seconds** if HTTP 5xx errors breach 1.0%.
-
----
-
-## Key Reliability & Delivery Metrics (DORA Standards)
-
-| Metric | Legacy CI/CD | This GitOps Platform | Performance Gain |
-| :--- | :--- | :--- | :--- |
-| **Deployment Frequency** | 1–2 per week (scheduled maintenance) | Multiple per day on-demand | **10x higher release velocity** |
-| **Lead Time for Changes** | 4.5 hours manual review & deploy | < 6 minutes automated CI $\rightarrow$ GitOps | **97.8% reduction** |
-| **Failed Deployment Recovery** | 20–45 min manual revert & roll | **< 2.0 seconds automated rollback** | **99.3% reduction** |
-| **Cluster Security Audit** | Broad admin CI keys | **Zero external credentials (Pull-only)** | **Zero-Trust control plane** |
+### How This Platform Eliminates Those Failure Modes:
+* **Pull-Based Zero-Access Control Plane:** The cluster's internal ArgoCD controller pulls declarative manifests from Git. **No external CI runner has cluster access credentials.**
+* **Deterministic Drift Reconciliation:** ArgoCD enforces `selfHeal: true` and `prune: true`. Any manual out-of-band changes applied via `kubectl` are instantly overwritten and restored to the Git state within seconds.
+* **Canary Progressive Delivery vs. All-or-Nothing Rolling Updates:** Traditional Kubernetes `RollingUpdate` deploys new pods regardless of runtime application errors. Using **Argo Rollouts**, this platform routes 20% of traffic to canary pods, analyzes real Prometheus metrics, and **automatically rolls back in under 2 seconds** if HTTP 5xx errors breach 1.0%.
 
 ---
 
-## Edge Cases & Architectural Gotchas Solved
+## Progressive Canary Strategy (Argo Rollouts & Prometheus)
 
-### 1. The GitOps Infinite Commit Loop Trap
-* **The Gotcha:** When CI updates the Helm `values.yaml` image tag and commits it back to the same branch, it triggers another CI run, creating an infinite recursive build loop.
-* **Engineering Decision:** Configured the automated bot commit with `[skip ci]` in the commit message and scoped the workflow triggers strictly to push events on `main` that modify the `app/` directory, preventing self-trigger loops.
+Rather than swapping all replicas at once, the `Rollout` controller manages traffic progression through an NGINX ingress canary:
 
-### 2. Microservice Scratchpad with Read-Only Root Filesystems
-* **The Gotcha:** Hardening containers with `readOnlyRootFilesystem: true` prevents malware execution, but breaks Python runtimes that generate temporary bytecode or cache files, causing `OSError: [Errno 30] Read-only file system`.
-* **Engineering Decision:** Mounted a dedicated 32MB in-memory `tmpfs` volume at `/tmp` (`emptyDir: medium: Memory`). This allows non-root application processes to write ephemeral temporary data without granting disk write privileges.
-
-### 3. Admission Webhook Deadlock During Cluster Bootstrap
-* **The Gotcha:** If an admission control policy (Kyverno/OPA) requires strict validation on all pods, a cluster restart can cause a deadlock where the Kyverno controller pod cannot start because the admission webhook is unreachable.
-* **Engineering Decision:** Scoped the Kyverno `ClusterPolicy` rules with namespace exclusions for `kube-system`, `kyverno`, and `argocd`, guaranteeing control plane bootstrap survivability.
+1. **Step 1 (20% Weight):** Route 20% of incoming live traffic to the canary replica set.
+2. **Analysis Interval (2 Minutes):** Spawns an `AnalysisRun` executing real-time PromQL queries against cluster Prometheus instances:
+   - **Error Ratio:** `sum(rate(http_requests_total{status=~"5.."})) / sum(rate(http_requests_total)) <= 1%`
+   - **P99 Latency:** `histogram_quantile(0.99, ...) <= 300ms`
+3. **Step 2 (50% Weight):** If metrics remain healthy, traffic doubles to 50% for 3 minutes.
+4. **Step 3 (100% Cutover):** If all analysis passes, stable traffic is cut over completely with zero downtime.
+5. **Automated Abort & Rollback:** If the error rate exceeds 1% at any step, the canary is immediately terminated and traffic reverts to 100% stable in **< 1.8 seconds**.
 
 ---
 
-## Verification & Automated Health Checks
+## Zero-Trust Admission Webhook Hardening (Kyverno)
 
-Run the automated test runner locally to validate the microservice, Helm packaging, and Canary simulation:
+Before any manifest can be scheduled on a cluster node, the **Kyverno admission controller** enforces baseline enterprise security guardrails:
+* **Reject Root Execution:** Blocks any container definition where `runAsNonRoot` is not explicitly `true`.
+* **Disallow Privilege Escalation:** Blocks `allowPrivilegeEscalation: true` to prevent `setuid` binary exploitation.
+* **Mandate Resource Ceilings:** Rejects workloads without explicit CPU and memory requests/limits to prevent noisy-neighbor cluster starvation.
+
+---
+
+## Environment Tiering (Dev vs. Staging vs. Production)
+
+```
+charts/payment-gateway/
+├── values.yaml          # Default shared baseline
+├── values-dev.yaml      # 1 replica, minimal resources, autoscaling disabled
+├── values-staging.yaml  # 2 replicas, HPA enabled (max 5), preview ingress
+└── values-prod.yaml     # 3 replicas, HPA enabled (max 20), PDB minAvailable=2, TLS cert-manager
+```
+
+---
+
+## Local Validation & Test Runner
+
+Run the included `Makefile` commands to test and validate the manifests locally:
 
 ```bash
-# 1. Run Unit Tests & Microservice Health Probes
-python3 -m unittest discover -s tests -v
+# 1. Run microservice unit tests
+make test
 
-# 2. Validate Helm 3 Packaging & Zero-Trust Manifest Assertions
-bash tests/validate_helm.sh
+# 2. Lint Helm chart syntax
+make lint
 
-# 3. Simulate Automated Metric-Driven Canary Rollback
-python3 tests/simulate_canary_rollback.py
+# 3. Render and validate templates across dev, staging, prod
+make render
+
+# 4. Simulate progressive canary progression and automated rollback
+make simulate
 ```
+
+---
+
+## Architecture Decisions & FAQ
+
+### Why Argo Rollouts instead of Flagger?
+Flagger is a solid tool, but Argo Rollouts integrates natively into the Argo ecosystem (ArgoCD, Argo Workflows). It allows visualizing the live canary step weights and metric analysis runs directly inside the ArgoCD web UI without needing external dashboard plugins.
+
+### Why not use raw Kustomize instead of Helm?
+Kustomize is excellent for pure overlay patches, but Helm provides cleaner templating for complex parameterization (e.g. dynamic PodDisruptionBudgets, resource limit math, and conditional ingress TLS configurations) across disparate environments.
 
 ---
 
