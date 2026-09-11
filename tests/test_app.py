@@ -67,5 +67,28 @@ class TestPaymentGatewayMicroservice(unittest.TestCase):
             urllib.request.urlopen(f"{BASE_URL}/")
         self.assertEqual(ctx.exception.code, 500)
 
+    def test_chaos_injection_reset_restores_service(self):
+        # Inject error
+        inject_req = urllib.request.Request(f"{BASE_URL}/chaos/inject?error_rate=1.0", method="POST")
+        with urllib.request.urlopen(inject_req) as response:
+            self.assertEqual(response.status, 200)
+
+        # Reset error
+        reset_req = urllib.request.Request(f"{BASE_URL}/chaos/inject?error_rate=0.0", method="POST")
+        with urllib.request.urlopen(reset_req) as response:
+            self.assertEqual(response.status, 200)
+            data = json.loads(response.read().decode("utf-8"))
+            self.assertEqual(data["active_error_rate"], 0.0)
+
+        # Verify traffic succeeds
+        with urllib.request.urlopen(f"{BASE_URL}/") as response:
+            self.assertEqual(response.status, 200)
+
+    def test_not_found_404_routing(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(f"{BASE_URL}/nonexistent-route")
+        self.assertEqual(ctx.exception.code, 404)
+
+
 if __name__ == "__main__":
     unittest.main()
