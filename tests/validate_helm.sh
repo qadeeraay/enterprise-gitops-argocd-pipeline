@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# ==============================================================================
-# Automated Helm Chart & Security Context Verification Runner
-# ==============================================================================
+# Helm chart and security context verification runner
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

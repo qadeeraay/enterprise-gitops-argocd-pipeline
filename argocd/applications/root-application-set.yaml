@@ -1,7 +1,5 @@
-# ==============================================================================
 # ArgoCD Declarative App-of-Apps Pattern
 # Synchronizes Multi-Environment Workloads from a Single Source of Truth
-# ==============================================================================
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

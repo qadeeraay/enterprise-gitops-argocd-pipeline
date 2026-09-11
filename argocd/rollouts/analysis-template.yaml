@@ -1,7 +1,5 @@
-# ==============================================================================
-# Prometheus Metric Analysis Template for Automated Canary Validation
-# Automatically aborts and rolls back if HTTP error rate exceeds 1% or P99 latency > 300ms
-# ==============================================================================
+# Prometheus metric analysis template for automated canary validation
+# Aborts and rolls back if HTTP error rate exceeds 1% or P99 latency > 300ms
 apiVersion: argoproj.io/v1alpha1
 kind: AnalysisTemplate
 metadata:

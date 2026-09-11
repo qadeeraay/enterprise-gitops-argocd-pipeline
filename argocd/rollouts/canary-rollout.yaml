@@ -1,6 +1,4 @@
-# ==============================================================================
-# Argo Rollouts Progressive Delivery: Automated Metric-Driven Canary
-# ==============================================================================
+# Argo Rollouts progressive delivery: automated metric-driven canary
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:
@@ -22,27 +20,25 @@ spec:
         nginx:
           stableIngress: payment-gateway-ingress
       steps:
-        # Step 1: Route 20% of live traffic to the new Canary release
+        # Initial canary split and soak window
         - setWeight: 20
         - pause: { duration: 2m }
-        # Step 2: Run automated Prometheus telemetry analysis
         - analysis:
             templates:
               - templateName: success-rate-analysis
             args:
               - name: service-name
                 value: payment-gateway-canary
-        # Step 3: Promote to 50% traffic if analysis succeeds
+        # Mid-stage promotion
         - setWeight: 50
         - pause: { duration: 3m }
-        # Step 4: Run final verification before 100% stable cutover
         - analysis:
             templates:
               - templateName: success-rate-analysis
             args:
               - name: service-name
                 value: payment-gateway-canary
-        # Step 5: Full 100% promotion
+        # Final cutover
         - setWeight: 100
   template:
     metadata:

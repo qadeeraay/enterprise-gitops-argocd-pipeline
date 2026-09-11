@@ -1,7 +1,5 @@
-# ==============================================================================
-# Kyverno Policy-as-Code: Kubernetes Admission Control Hardening
-# Enforces Zero-Trust Security at the API Admission Webhook Layer
-# ==============================================================================
+# Kyverno policy-as-code: Kubernetes admission control hardening
+# Enforces zero-trust pod security standards at the admission webhook layer
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
